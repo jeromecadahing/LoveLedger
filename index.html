@@ -66,8 +66,15 @@ button{cursor:pointer}
 
 h2{font-size:1rem;font-weight:600;color:var(--muted);margin:22px 0 8px}
 .list{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
-.row{display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:13px 16px;border-top:1px solid var(--line);width:100%;text-align:left;background:none;border-left:0;border-right:0;border-bottom:0}
-.row:first-child{border-top:0}
+.item{display:flex;align-items:center;border-top:1px solid var(--line)}
+.item:first-child{border-top:0}
+.row{flex:1;min-width:0;display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:13px 16px 13px 10px;text-align:left;background:none;border:0}
+.tick,.tickspace{flex:none;width:44px;height:44px;margin-left:8px}
+.tick{background:none;border:0;padding:0;display:grid;place-items:center}
+.tick span{width:26px;height:26px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;font-size:.85rem;font-weight:800;color:transparent}
+.tick[aria-pressed="true"] span{background:var(--gbp);border-color:var(--gbp);color:var(--card)}
+.item.settled .row{opacity:.55}
+.item.settled .row .who,.item.settled .row .money b{text-decoration:line-through}
 .row .who{font-weight:600}
 .row .meta{color:var(--muted);font-size:.86rem;grid-column:1}
 .row .money{grid-row:1/3;grid-column:2;align-self:center;text-align:right}
@@ -242,7 +249,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc,
-  addDoc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  addDoc, setDoc, updateDoc, deleteDoc, deleteField, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig, ALLOWED_EMAILS } from "./config.js?v=2";
 
 const app = initializeApp(firebaseConfig);
@@ -268,7 +275,7 @@ function notice(msg){ const n=$("#notice"); n.hidden=!msg; n.textContent=msg||""
 /* ---------- rendering ---------- */
 function balances(){
   const bal={GBP:0,PHP:0}; // positive = B owes A
-  for(const e of state.entries){ bal[e.currency] += (e.from==="A" ? 1 : -1) * Number(e.amount); }
+  for(const e of state.entries){ if(e.settled) continue; bal[e.currency] += (e.from==="A" ? 1 : -1) * Number(e.amount); }
   return bal;
 }
 function renderHero(){
@@ -296,17 +303,27 @@ function renderHistory(){
     const d=new Date((e.date||today())+"T00:00:00");
     const m=d.toLocaleDateString("en-GB",{month:"long",year:"numeric"});
     if(m!==month){ month=m; view.append(el("h2",{text:m})); list=el("div",{class:"list"}); view.append(list); }
+    const item=el("div",{class:"item"+(e.settled?" settled":"")});
+    if(e.kind==="repay") item.append(el("span",{class:"tickspace"}));
+    else {
+      const tick=el("button",{class:"tick",type:"button","aria-pressed":String(!!e.settled),
+        "aria-label": e.settled ? "Mark as not paid back" : "Mark as paid back"}, el("span",{text:"✓"}));
+      tick.addEventListener("click",()=>toggleSettled(e));
+      item.append(tick);
+    }
     const row=el("button",{class:"row "+e.currency.toLowerCase(),type:"button","aria-label":"Edit payment"});
     const total=e.total ?? e.amount;
     const title=e.note || (e.kind==="repay" ? nm(e.from)+" paid "+nm(e.to)+" back" : "Payment");
     const tag=e.kind==="split" ? "Split" : e.kind==="repay" ? "Paid back" : "Paid for "+nm(e.to);
     const who=el("div",{class:"who"}, title, el("span",{class:"tag",text:tag}));
     const day=d.toLocaleDateString("en-GB",{day:"numeric",month:"short"});
-    const meta=el("div",{class:"meta",text:[day, nm(e.from)+" paid "+fmt(total,e.currency), e.bank ? "from "+e.bank : null].filter(Boolean).join(" · ")});
+    const paidOff = e.settled ? "paid back "+(e.settledAt ? new Date(e.settledAt).toLocaleDateString("en-GB",{day:"numeric",month:"short"}) : "") : null;
+    const meta=el("div",{class:"meta",text:[day, nm(e.from)+" paid "+fmt(total,e.currency), e.bank ? "from "+e.bank : null, paidOff].filter(Boolean).join(" · ")});
     const money=el("div",{class:"money"}, el("b",{text:fmt(e.amount,e.currency)}), el("small",{text: e.kind==="repay" ? "paid back" : nm(e.to)+" owes"}));
     row.append(who,money,meta);
     row.addEventListener("click",()=>openEntry(e));
-    list.append(row);
+    item.append(row);
+    list.append(item);
   }
 }
 function renderBanks(){
@@ -377,6 +394,17 @@ $("#amount").addEventListener("input",syncForm);
 $("#cancelBtn").onclick=()=>$("#entryDlg").close();
 $("#addBtn").onclick=()=>{ if(!state.names.A||!state.names.B) openSetup(); else openEntry(null); };
 
+function toggleSettled(e){
+  const owed=fmt(e.amount,e.currency), what=e.note ? "“"+e.note+"”" : "this";
+  if(!e.settled){
+    if(!confirm("Mark "+what+" as paid back?\n"+nm(e.to)+" has paid "+nm(e.from)+" "+owed+".")) return;
+    fireAndForget(updateDoc(doc(db,"entries",e.id),{settled:true, settledAt:Date.now()}));
+  } else {
+    if(!confirm("Mark "+what+" as not paid back yet?")) return;
+    fireAndForget(updateDoc(doc(db,"entries",e.id),{settled:false, settledAt:deleteField()}));
+  }
+}
+
 function writeError(err){
   if(err?.code==="permission-denied") return "This account isn’t allowed to change the tracker.";
   return "Couldn’t save just now. Check your connection and try again.";
@@ -394,7 +422,8 @@ $("#entryForm").addEventListener("submit", ev=>{
     bank:$("#bank").value.trim().slice(0,60), date:$("#date").value||today(), note };
   if(state.editingId){
     const old=state.entries.find(x=>x.id===state.editingId);
-    fireAndForget(setDoc(doc(db,"entries",state.editingId), {...data, createdAt:old?.createdAt||Date.now()}));
+    const keep = old?.settled ? {settled:true, settledAt:old.settledAt||Date.now()} : {};
+    fireAndForget(setDoc(doc(db,"entries",state.editingId), {...data, ...keep, createdAt:old?.createdAt||Date.now()}));
   } else {
     fireAndForget(addDoc(collection(db,"entries"), {...data, createdAt:Date.now()}));
   }
