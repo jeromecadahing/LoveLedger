@@ -381,7 +381,7 @@ $("#googleBtn").onclick = async ()=>{
   try { await signInWithPopup(auth, provider); }
   catch(err){
     if(err?.code==="auth/popup-blocked" || err?.code==="auth/operation-not-supported-in-this-environment") await signInWithRedirect(auth, provider);
-    else if(err?.code!=="auth/popup-closed-by-user" && err?.code!=="auth/cancelled-popup-request") $("#signinErr").textContent="Sign-in didn’t finish. Try again.";
+    else if(err?.code!=="auth/popup-closed-by-user" && err?.code!=="auth/cancelled-popup-request") $("#signinErr").textContent="Sign-in didn’t finish (" + (err?.code || err?.message || "unknown error") + "). Try again.";
   }
 };
 getRedirectResult(auth).catch(()=>{});
