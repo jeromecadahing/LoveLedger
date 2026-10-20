@@ -169,11 +169,11 @@ textarea{resize:vertical;min-height:60px}
   </div>
 </main>
 
-<button class="fab" id="addBtn" type="button" hidden>Add a payment</button>
+<button class="fab" id="addBtn" type="button" hidden>Log a transaction</button>
 
 <dialog id="entryDlg">
   <form class="sheet" id="entryForm" method="dialog" novalidate>
-    <h3 id="entryTitle">Add a payment</h3>
+    <h3 id="entryTitle">Log a transaction</h3>
 
     <label for="note" id="noteLabel">What was it for?</label>
     <input id="note" placeholder="e.g. Breakfast at Delight" autocomplete="off" maxlength="200">
@@ -294,7 +294,7 @@ function renderHero(){
 function renderHistory(){
   const view=$("#view"); view.replaceChildren();
   if(!state.entries.length){
-    view.append(el("div",{class:"list"}, el("div",{class:"empty",text:"Nothing recorded yet. Tap “Add a payment” when one of you pays for something or pays the other back."})));
+    view.append(el("div",{class:"list"}, el("div",{class:"empty",text:"Nothing recorded yet. Tap “Log a transaction” when one of you pays for something or pays the other back."})));
     return;
   }
   const sorted=[...state.entries].sort((a,b)=> (b.date||"").localeCompare(a.date||"") || (b.createdAt||0)-(a.createdAt||0));
@@ -311,7 +311,7 @@ function renderHistory(){
       tick.addEventListener("click",()=>toggleSettled(e));
       item.append(tick);
     }
-    const row=el("button",{class:"row "+e.currency.toLowerCase(),type:"button","aria-label":"Edit payment"});
+    const row=el("button",{class:"row "+e.currency.toLowerCase(),type:"button","aria-label":"Edit transaction"});
     const total=e.total ?? e.amount;
     const title=e.note || (e.kind==="repay" ? nm(e.from)+" paid "+nm(e.to)+" back" : "Payment");
     const tag=e.kind==="split" ? "Split" : e.kind==="repay" ? "Paid back" : "Paid for "+nm(e.to);
@@ -377,7 +377,7 @@ function syncForm(){
 function openEntry(e){
   state.editingId = e ? e.id : null;
   state.form = e ? {from:e.from, kind:e.kind, cur:e.currency} : {from:state.form.from||"A", kind:"split", cur:state.form.cur};
-  $("#entryTitle").textContent = e ? "Edit payment" : "Add a payment";
+  $("#entryTitle").textContent = e ? "Edit transaction" : "Log a transaction";
   $("#amount").value = e ? (e.total ?? e.amount) : "";
   $("#bank").value = e ? (e.bank||"") : "";
   $("#date").value = e ? (e.date||today()) : today();
