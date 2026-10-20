@@ -1,16 +1,17 @@
-// 1. Paste the config from Firebase console → Project settings → Your apps → Web app.
-//    These values are not secret; your Firestore rules are what keep the data private.
+// Firebase settings for this app. These are not secret;
+// the Firestore rules are what keep the data private.
 export const firebaseConfig = {
-  apiKey: "PASTE_HERE",
-  authDomain: "PASTE_HERE.firebaseapp.com",
-  projectId: "PASTE_HERE",
-  storageBucket: "PASTE_HERE.appspot.com",
-  messagingSenderId: "PASTE_HERE",
-  appId: "PASTE_HERE"
+  apiKey: "AIzaSyBRA7f_Y2EJcThuXskLooMo_nrEYQlXcKo",
+  authDomain: "loveledger-bf823.firebaseapp.com",
+  projectId: "loveledger-bf823",
+  storageBucket: "loveledger-bf823.firebasestorage.app",
+  messagingSenderId: "1075159355598",
+  appId: "1:1075159355598:web:d316e14418f093d826c09f",
+  measurementId: "G-GQ8H97BZ8G"
 };
 
-// 2. The two Google accounts allowed in. Must match the list in firestore.rules.
+// The two Google accounts allowed in. Must match firestore.rules.
 export const ALLOWED_EMAILS = [
-  "you@gmail.com",
-  "wife@gmail.com"
+  "ecadahing@gmail.com",
+  "tonsdinglasan@gmail.com"
 ];
