@@ -102,6 +102,16 @@ textarea{resize:vertical;min-height:60px}
 .dir .p{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:11px;text-align:center;font-weight:600}
 .dir button{border:1px solid var(--line);background:var(--card);border-radius:999px;width:42px;height:42px;font-size:1.1rem}
 .hint{font-size:.82rem;color:var(--muted);margin-top:6px}
+.choices{display:grid;gap:8px}
+.choice{text-align:left;border:1px solid var(--line);background:var(--paper);border-radius:12px;padding:11px 14px;color:var(--ink)}
+.choice b{display:block;font-weight:600}
+.choice span{display:block;font-size:.85rem;color:var(--muted)}
+.choice[aria-pressed="true"]{background:var(--card);border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.amountrow{display:grid;grid-template-columns:auto 1fr;gap:8px}
+.amountrow .seg button{padding:10px 14px}
+.result{margin:12px 0 0;padding:12px 14px;border-radius:12px;background:var(--gbp-soft);color:var(--gbp);font-weight:600}
+.result.php{background:var(--php-soft);color:var(--php)}
+.result:empty{display:none}
 .actions{display:flex;gap:10px;margin-top:22px}
 .primary{flex:1;background:var(--btn);color:var(--btn-ink);border:0;border-radius:12px;padding:14px;font-weight:700}
 .secondary{background:none;border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-weight:600}
@@ -146,41 +156,44 @@ textarea{resize:vertical;min-height:60px}
   </div>
 </main>
 
-<button class="fab" id="addBtn" type="button" hidden>Add money moved</button>
+<button class="fab" id="addBtn" type="button" hidden>Add a payment</button>
 
 <dialog id="entryDlg">
   <form class="sheet" id="entryForm" method="dialog" novalidate>
-    <h3 id="entryTitle">Add money moved</h3>
+    <h3 id="entryTitle">Add a payment</h3>
 
-    <label>Who gave the money</label>
-    <div class="dir">
-      <div class="p" id="fromName"></div>
-      <button type="button" id="swapBtn" aria-label="Swap who gave and who received">⇄</button>
-      <div class="p" id="toName"></div>
+    <label for="note" id="noteLabel">What was it for?</label>
+    <input id="note" placeholder="e.g. Breakfast at Delight" autocomplete="off" maxlength="200">
+
+    <label>Who paid?</label>
+    <div class="seg" id="payerSeg">
+      <button type="button" data-v="A" id="payerA" aria-pressed="true"></button>
+      <button type="button" data-v="B" id="payerB" aria-pressed="false"></button>
     </div>
 
-    <label>What was it</label>
-    <div class="seg" id="kindSeg">
-      <button type="button" data-v="loan" aria-pressed="true">Borrowed</button>
-      <button type="button" data-v="repay" aria-pressed="false">Paying back</button>
+    <label>How should it be shared?</label>
+    <div class="choices" id="kindSeg">
+      <button type="button" class="choice" data-v="split" aria-pressed="true"><b>Split it 50/50</b><span id="dSplit"></span></button>
+      <button type="button" class="choice" data-v="loan" aria-pressed="false"><b id="tLoan"></b><span id="dLoan"></span></button>
+      <button type="button" class="choice" data-v="repay" aria-pressed="false"><b>Paying back</b><span id="dRepay"></span></button>
     </div>
 
-    <label for="amount">Amount</label>
-    <div class="seg cur" id="curSeg" style="margin-bottom:8px">
-      <button type="button" data-v="GBP" aria-pressed="true">£ GBP</button>
-      <button type="button" data-v="PHP" aria-pressed="false">₱ PHP</button>
+    <label for="amount">How much was paid?</label>
+    <div class="amountrow">
+      <div class="seg cur" id="curSeg">
+        <button type="button" data-v="GBP" aria-pressed="true" aria-label="Pounds">£</button>
+        <button type="button" data-v="PHP" aria-pressed="false" aria-label="Pesos">₱</button>
+      </div>
+      <input id="amount" inputmode="decimal" placeholder="0.00" autocomplete="off">
     </div>
-    <input id="amount" inputmode="decimal" placeholder="0.00" autocomplete="off">
+    <p class="result" id="result" aria-live="polite"></p>
 
-    <label for="bank">Paid from which bank</label>
-    <input id="bank" list="bankList" placeholder="e.g. Monzo, BDO, GCash" autocomplete="off">
+    <label for="bank" id="bankLabel">Paid from which bank?</label>
+    <input id="bank" list="bankList" placeholder="e.g. Zopa, Monzo, BDO, GCash" autocomplete="off">
     <datalist id="bankList"></datalist>
 
     <label for="date">Date</label>
     <input id="date" type="date">
-
-    <label for="note">Note (optional)</label>
-    <textarea id="note" placeholder="What it was for"></textarea>
 
     <div class="err" id="entryErr"></div>
     <div class="actions">
@@ -257,7 +270,7 @@ function renderHero(){
 function renderHistory(){
   const view=$("#view"); view.replaceChildren();
   if(!state.entries.length){
-    view.append(el("div",{class:"list"}, el("div",{class:"empty",text:"Nothing recorded yet. Tap “Add money moved” when one of you lends or pays back."})));
+    view.append(el("div",{class:"list"}, el("div",{class:"empty",text:"Nothing recorded yet. Tap “Add a payment” when one of you pays for something or pays the other back."})));
     return;
   }
   const sorted=[...state.entries].sort((a,b)=> (b.date||"").localeCompare(a.date||"") || (b.createdAt||0)-(a.createdAt||0));
@@ -266,11 +279,14 @@ function renderHistory(){
     const d=new Date((e.date||today())+"T00:00:00");
     const m=d.toLocaleDateString("en-GB",{month:"long",year:"numeric"});
     if(m!==month){ month=m; view.append(el("h2",{text:m})); list=el("div",{class:"list"}); view.append(list); }
-    const row=el("button",{class:"row "+e.currency.toLowerCase(),type:"button","aria-label":"Edit entry"});
-    const who=el("div",{class:"who"}, nm(e.from)+" → "+nm(e.to), el("span",{class:"tag",text:e.kind==="repay"?"Paid back":"Borrowed"}));
+    const row=el("button",{class:"row "+e.currency.toLowerCase(),type:"button","aria-label":"Edit payment"});
+    const total=e.total ?? e.amount;
+    const title=e.note || (e.kind==="repay" ? nm(e.from)+" paid "+nm(e.to)+" back" : "Payment");
+    const tag=e.kind==="split" ? "Split" : e.kind==="repay" ? "Paid back" : "Paid for "+nm(e.to);
+    const who=el("div",{class:"who"}, title, el("span",{class:"tag",text:tag}));
     const day=d.toLocaleDateString("en-GB",{day:"numeric",month:"short"});
-    const meta=el("div",{class:"meta",text:[day, e.bank ? "from "+e.bank : null, e.note||null].filter(Boolean).join(" · ")});
-    const money=el("div",{class:"money"}, el("b",{text:fmt(e.amount,e.currency)}), el("small",{text:e.currency}));
+    const meta=el("div",{class:"meta",text:[day, nm(e.from)+" paid "+fmt(total,e.currency), e.bank ? "from "+e.bank : null].filter(Boolean).join(" · ")});
+    const money=el("div",{class:"money"}, el("b",{text:fmt(e.amount,e.currency)}), el("small",{text: e.kind==="repay" ? "paid back" : nm(e.to)+" owes"}));
     row.append(who,money,meta);
     row.addEventListener("click",()=>openEntry(e));
     list.append(row);
@@ -282,7 +298,7 @@ function renderBanks(){
   for(const person of ["A","B"]){
     const totals={};
     for(const e of state.entries.filter(x=>x.from===person)){
-      const b=(e.bank||"Bank not set").trim(); totals[b] ??= {GBP:0,PHP:0}; totals[b][e.currency]+=Number(e.amount);
+      const b=(e.bank||"Bank not set").trim(); totals[b] ??= {GBP:0,PHP:0}; totals[b][e.currency]+=Number(e.total ?? e.amount);
     }
     view.append(el("h2",{text:"Money that left "+nm(person)+"’s accounts"}));
     const list=el("div",{class:"list"});
@@ -305,23 +321,42 @@ function render(){
 
 /* ---------- entry sheet ---------- */
 function setSeg(seg,val){ seg.querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed", String(b.dataset.v===val))); }
-function syncDir(){ $("#fromName").textContent=nm(state.form.from); $("#toName").textContent=nm(other(state.form.from)); }
+const parseAmount=()=>parseFloat(String($("#amount").value).replace(/,/g,""));
+const owedFor=(kind,total)=> kind==="split" ? Math.round(total*50)/100 : Math.round(total*100)/100;
+function syncForm(){
+  const {from:p, kind, cur}=state.form, o=other(p);
+  $("#payerA").textContent=nm("A"); $("#payerB").textContent=nm("B");
+  setSeg($("#payerSeg"),p); setSeg($("#kindSeg"),kind); setSeg($("#curSeg"),cur);
+  $("#dSplit").textContent=nm(o)+" owes half";
+  $("#tLoan").textContent="Paid for "+nm(o);
+  $("#dLoan").textContent=nm(o)+" owes the full amount";
+  $("#dRepay").textContent=nm(p)+" is paying "+nm(o)+" back";
+  $("#noteLabel").textContent = kind==="repay" ? "Note (optional)" : "What was it for?";
+  $("#note").placeholder = kind==="repay" ? "e.g. For last week’s groceries" : "e.g. Breakfast at Delight";
+  $("#bankLabel").textContent="Which of "+nm(p)+"’s banks did it come from?";
+  const total=parseAmount(), r=$("#result");
+  r.className="result "+cur.toLowerCase();
+  if(!(total>0)) r.textContent="";
+  else if(kind==="repay") r.textContent="Takes "+fmt(total,cur)+" off what "+nm(p)+" owes "+nm(o);
+  else r.textContent=nm(o)+" owes "+nm(p)+" "+fmt(owedFor(kind,total),cur);
+}
 function openEntry(e){
   state.editingId = e ? e.id : null;
-  state.form = e ? {from:e.from, kind:e.kind, cur:e.currency} : {from:"A", kind:"loan", cur:state.form.cur};
-  $("#entryTitle").textContent = e ? "Edit entry" : "Add money moved";
-  $("#amount").value = e ? e.amount : "";
+  state.form = e ? {from:e.from, kind:e.kind, cur:e.currency} : {from:state.form.from||"A", kind:"split", cur:state.form.cur};
+  $("#entryTitle").textContent = e ? "Edit payment" : "Add a payment";
+  $("#amount").value = e ? (e.total ?? e.amount) : "";
   $("#bank").value = e ? (e.bank||"") : "";
   $("#date").value = e ? (e.date||today()) : today();
   $("#note").value = e ? (e.note||"") : "";
   $("#deleteBtn").hidden = !e;
   $("#entryErr").textContent="";
-  setSeg($("#kindSeg"),state.form.kind); setSeg($("#curSeg"),state.form.cur); syncDir();
+  syncForm();
   $("#entryDlg").showModal();
 }
-$("#swapBtn").onclick=()=>{ state.form.from=other(state.form.from); syncDir(); };
-$("#kindSeg").onclick=ev=>{ const b=ev.target.closest("button"); if(!b) return; state.form.kind=b.dataset.v; setSeg($("#kindSeg"),b.dataset.v); };
-$("#curSeg").onclick=ev=>{ const b=ev.target.closest("button"); if(!b) return; state.form.cur=b.dataset.v; setSeg($("#curSeg"),b.dataset.v); };
+for(const [id,key] of [["#payerSeg","from"],["#kindSeg","kind"],["#curSeg","cur"]]){
+  $(id).onclick=ev=>{ const b=ev.target.closest("button"); if(!b) return; state.form[key]=b.dataset.v; syncForm(); };
+}
+$("#amount").addEventListener("input",syncForm);
 $("#cancelBtn").onclick=()=>$("#entryDlg").close();
 $("#addBtn").onclick=()=>{ if(!state.names.A||!state.names.B) openSetup(); else openEntry(null); };
 
@@ -334,11 +369,12 @@ function fireAndForget(p, errEl){ p.catch(err=>{ notice(writeError(err)); }); }
 
 $("#entryForm").addEventListener("submit", ev=>{
   ev.preventDefault();
-  const amount=parseFloat(String($("#amount").value).replace(/,/g,""));
-  if(!(amount>0) || amount>=1e7){ $("#entryErr").textContent="Enter an amount above zero."; return; }
-  const data={ from:state.form.from, to:other(state.form.from), kind:state.form.kind, currency:state.form.cur,
-    amount:Math.round(amount*100)/100, bank:$("#bank").value.trim().slice(0,60), date:$("#date").value||today(),
-    note:$("#note").value.trim().slice(0,200) };
+  const total=parseAmount(), kind=state.form.kind, note=$("#note").value.trim().slice(0,200);
+  if(kind!=="repay" && !note){ $("#entryErr").textContent="Add what it was for, like “Breakfast”."; $("#note").focus(); return; }
+  if(!(total>0) || total>=1e7){ $("#entryErr").textContent="Enter how much was paid."; $("#amount").focus(); return; }
+  const data={ from:state.form.from, to:other(state.form.from), kind, currency:state.form.cur,
+    total:Math.round(total*100)/100, amount:owedFor(kind,total),
+    bank:$("#bank").value.trim().slice(0,60), date:$("#date").value||today(), note };
   if(state.editingId){
     const old=state.entries.find(x=>x.id===state.editingId);
     fireAndForget(setDoc(doc(db,"entries",state.editingId), {...data, createdAt:old?.createdAt||Date.now()}));
