@@ -122,6 +122,8 @@ textarea{resize:vertical;min-height:60px}
 .signin p{color:var(--muted);margin:0 auto 26px;max-width:32ch}
 .signin .primary{flex:none;padding:14px 26px}
 [hidden]{display:none!important}
+.installbar{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px 10px 14px;margin-bottom:16px;font-size:.92rem}
+.installbar button{background:var(--btn);color:var(--btn-ink);border:0;border-radius:999px;padding:8px 16px;font-weight:700}
 .notice{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;color:var(--muted);font-size:.9rem;margin-bottom:16px}
 @media (prefers-reduced-motion: no-preference){
   dialog[open]{animation:up .22s ease-out}
@@ -131,6 +133,10 @@ textarea{resize:vertical;min-height:60px}
 </head>
 <body>
 <main>
+  <div class="installbar" id="installBar" hidden>
+    <span>Add Ours to your home screen</span>
+    <button type="button" id="installBtn">Install</button>
+  </div>
   <section class="signin" id="signin" hidden>
     <h1>Money between us</h1>
     <p>Sign in with your Google account to see what you and your partner owe each other.</p>
@@ -220,6 +226,17 @@ textarea{resize:vertical;min-height:60px}
   </form>
 </dialog>
 
+<script>
+// Install button (Android/Chrome). Runs before the Firebase code so the prompt isn't missed.
+(function(){
+  let deferred=null;
+  const bar=document.getElementById("installBar"), btn=document.getElementById("installBtn");
+  window.addEventListener("beforeinstallprompt", e=>{ e.preventDefault(); deferred=e; bar.hidden=false; });
+  btn.addEventListener("click", async ()=>{ if(!deferred) return; deferred.prompt(); try{ await deferred.userChoice; }catch(_){} deferred=null; bar.hidden=true; });
+  window.addEventListener("appinstalled", ()=>{ bar.hidden=true; });
+  if("serviceWorker" in navigator) window.addEventListener("load", ()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));
+})();
+</script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut }
