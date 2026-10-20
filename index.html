@@ -131,6 +131,25 @@ textarea{resize:vertical;min-height:60px}
 [hidden]{display:none!important}
 .installbar{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px 10px 14px;margin-bottom:16px;font-size:.92rem}
 .installbar button{background:var(--btn);color:var(--btn-ink);border:0;border-radius:999px;padding:8px 16px;font-weight:700}
+.lock{position:fixed;inset:0;z-index:50;background:var(--paper);display:flex;align-items:center;justify-content:center;padding:calc(20px + env(safe-area-inset-top,0px)) 20px calc(20px + env(safe-area-inset-bottom,0px))}
+.lockbox{width:100%;max-width:320px;text-align:center}
+.lockbox .brand{margin-bottom:28px}
+.lockbox p{margin:0 0 18px;font-weight:600;font-size:1.1rem}
+.dots{display:flex;justify-content:center;gap:16px;margin-bottom:8px}
+.dots i{width:14px;height:14px;border-radius:50%;border:2px solid var(--ink)}
+.dots i.on{background:var(--ink)}
+.dots.shake{animation:shake .3s}
+@keyframes shake{25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:18px auto 10px;max-width:270px}
+.pad button{aspect-ratio:1;border-radius:50%;border:1px solid var(--line);background:var(--card);font-family:"Bricolage Grotesque",sans-serif;font-size:1.6rem;font-weight:600}
+.pad button.blank{visibility:hidden}
+.pad button.back{border:0;background:none;font-size:1.3rem;color:var(--muted)}
+.bio{display:inline-flex;align-items:center;gap:10px;background:var(--btn);color:var(--btn-ink);border:0;border-radius:999px;padding:13px 22px;font-weight:700;margin:6px 0 4px}
+.bio svg{width:22px;height:22px}
+#bioOffer{display:grid;gap:6px;justify-items:center;margin-top:10px}
+#bioOffer .primary{flex:none;padding:14px 24px}
+.linkbtn{background:none;border:0;color:var(--muted);text-decoration:underline;padding:10px;font-size:.92rem}
+.foot{text-align:center;margin-top:28px}
 .notice{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;color:var(--muted);font-size:.9rem;margin-bottom:16px}
 @media (prefers-reduced-motion: no-preference){
   dialog[open]{animation:up .22s ease-out}
@@ -167,7 +186,35 @@ textarea{resize:vertical;min-height:60px}
   </div>
   <div id="view"></div>
   </div>
+  <p class="foot" id="foot" hidden><button type="button" class="linkbtn" id="changePinBtn">Change PIN</button><button type="button" class="linkbtn" id="bioToggleBtn" hidden></button></p>
 </main>
+
+<div class="lock" id="lock" hidden role="dialog" aria-modal="true" aria-labelledby="lockTitle">
+  <div class="lockbox">
+    <div class="brand">Ours</div>
+    <p id="lockTitle">Enter your PIN</p>
+    <button type="button" class="bio" id="bioBtn" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 11v3a8 8 0 0 1-1.5 4.7"/><path d="M8.5 9.5A3.5 3.5 0 0 1 15.5 11v1.5a12 12 0 0 1-.9 4.5"/><path d="M5.6 7.5A7.5 7.5 0 0 1 19.5 11v1.5"/><path d="M5 12.5c0 2.3-.5 3.6-1 4.5"/><path d="M12 18.5c-.5 1-1.2 2-2 2.8"/><path d="M18.8 16.5c-.2.9-.5 1.8-.8 2.6"/></svg>
+      <span>Unlock with fingerprint</span>
+    </button>
+    <div id="bioOffer" hidden>
+      <button type="button" class="primary" id="bioEnableBtn">Turn on fingerprint</button>
+      <button type="button" class="linkbtn" id="bioSkipBtn">Not now</button>
+      <div class="err" id="bioErr" aria-live="polite"></div>
+    </div>
+    <div id="pinArea">
+    <div class="dots" id="dots" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    <div class="err" id="lockErr" aria-live="polite"></div>
+    <div class="pad" id="pad">
+      <button type="button" data-d="1">1</button><button type="button" data-d="2">2</button><button type="button" data-d="3">3</button>
+      <button type="button" data-d="4">4</button><button type="button" data-d="5">5</button><button type="button" data-d="6">6</button>
+      <button type="button" data-d="7">7</button><button type="button" data-d="8">8</button><button type="button" data-d="9">9</button>
+      <button type="button" class="blank" tabindex="-1" aria-hidden="true"></button><button type="button" data-d="0">0</button><button type="button" class="back" data-d="back" aria-label="Delete">⌫</button>
+    </div>
+    </div>
+    <button type="button" class="linkbtn" id="lockAlt"></button>
+  </div>
+</div>
 
 <button class="fab" id="addBtn" type="button" hidden>Log a transaction</button>
 
@@ -455,6 +502,145 @@ document.querySelector(".tabs").onclick=ev=>{
   render();
 };
 
+/* ---------- PIN lock (per phone) ---------- */
+const MAX_TRIES=5;
+const pin={ uid:null, entered:"", mode:"unlock", first:"", changing:false };
+const pinKey=()=>"ours-pin:"+pin.uid, failKey=()=>"ours-pin-fails:"+pin.uid;
+function readPin(){ try{ return JSON.parse(localStorage.getItem(pinKey())||"null"); }catch(_){ return null; } }
+function readFails(){ try{ return Number(localStorage.getItem(failKey())||0); }catch(_){ return 0; } }
+function writeFails(n){ try{ localStorage.setItem(failKey(),String(n)); }catch(_){} }
+async function hashPin(p,salt){
+  const buf=await crypto.subtle.digest("SHA-256", new TextEncoder().encode(salt+":"+pin.uid+":"+p));
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+function drawDots(){ [...$("#dots").children].forEach((d,i)=>d.classList.toggle("on", i<pin.entered.length)); }
+function setLockText(title, err=""){ $("#lockTitle").textContent=title; $("#lockErr").textContent=err; }
+function showLock(mode, changing=false){
+  pin.mode=mode; pin.entered=""; pin.first=""; pin.changing=changing;
+  document.querySelectorAll("dialog[open]").forEach(d=>d.close());
+  setLockText(mode==="unlock" ? "Enter your PIN" : "Choose a 4-digit PIN for this phone");
+  const alt=$("#lockAlt");
+  alt.hidden = mode==="set" && !changing;
+  alt.textContent = mode==="unlock" ? "Forgot PIN? Sign out" : "Cancel";
+  $("#pinArea").hidden=false; $("#bioOffer").hidden=true;
+  $("#bioBtn").hidden = !(mode==="unlock" && readPin()?.credId);
+  drawDots(); $("#lock").hidden=false;
+}
+function hideLock(){
+  $("#lock").hidden=true; pin.entered="";
+  // First time in: once the PIN is set, ask for both names if they're missing.
+  if(pin.uid && state.namesChecked && (!state.names.A || !state.names.B) && !$("#setupDlg").open) openSetup();
+}
+function wrong(msg){ pin.entered=""; drawDots(); const d=$("#dots"); d.classList.remove("shake"); void d.offsetWidth; d.classList.add("shake"); $("#lockErr").textContent=msg; }
+async function forgetPinAndSignOut(){
+  try{ localStorage.removeItem(pinKey()); localStorage.removeItem(failKey()); }catch(_){}
+  hideLock(); await signOut(auth);
+}
+async function pinComplete(){
+  const entered=pin.entered;
+  if(pin.mode==="unlock"){
+    const rec=readPin();
+    if(rec && await hashPin(entered,rec.salt)===rec.hash){ writeFails(0); hideLock(); return; }
+    const fails=readFails()+1; writeFails(fails);
+    if(fails>=MAX_TRIES){ await forgetPinAndSignOut(); $("#signinErr").textContent="Too many wrong PINs. Sign in with Google to set a new one."; return; }
+    wrong("Wrong PIN. "+(MAX_TRIES-fails)+(MAX_TRIES-fails===1?" try":" tries")+" left.");
+  } else if(pin.mode==="set"){
+    pin.first=entered; pin.mode="confirm"; pin.entered=""; drawDots(); setLockText("Enter the same PIN again");
+  } else {
+    if(entered!==pin.first){ pin.mode="set"; pin.first=""; setLockText("Choose a 4-digit PIN for this phone"); wrong("Those didn’t match. Try again."); return; }
+    const salt=[...crypto.getRandomValues(new Uint8Array(16))].map(b=>b.toString(16).padStart(2,"0")).join("");
+    const hash=await hashPin(entered,salt);
+    const credId=readPin()?.credId;
+    savePin({salt,hash,...(credId?{credId}:{})}); writeFails(0);
+    if(!credId && await bioSupported()) showBioOffer(); else hideLock();
+  }
+}
+function savePin(rec){ try{ localStorage.setItem(pinKey(), JSON.stringify(rec)); }catch(_){} refreshBioToggle(); }
+
+/* Fingerprint / face unlock, using the phone's own biometric check (WebAuthn). The PIN stays as the backup. */
+let bioBusy=false, bioOk=null;
+async function bioSupported(){
+  if(bioOk!==null) return bioOk;
+  try{ bioOk=!!(window.PublicKeyCredential && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()); }
+  catch(_){ bioOk=false; }
+  return bioOk;
+}
+const b64u=buf=>btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+const unb64u=str=>Uint8Array.from(atob(str.replace(/-/g,"+").replace(/_/g,"/")+"===".slice((str.length+3)%4)),c=>c.charCodeAt(0));
+async function enableBio(){
+  const u=auth.currentUser; if(!u) return false;
+  try{
+    const cred=await navigator.credentials.create({publicKey:{
+      challenge:crypto.getRandomValues(new Uint8Array(32)),
+      rp:{name:"Ours"},
+      user:{id:new TextEncoder().encode(u.uid).slice(0,64), name:u.email||"user", displayName:u.displayName||u.email||"Ours user"},
+      pubKeyCredParams:[{type:"public-key",alg:-7},{type:"public-key",alg:-257}],
+      authenticatorSelection:{authenticatorAttachment:"platform", userVerification:"required", residentKey:"discouraged"},
+      timeout:60000, attestation:"none"
+    }});
+    const rec=readPin(); if(!rec) return false;
+    savePin({...rec, credId:b64u(cred.rawId)});
+    return true;
+  }catch(_){ return false; }
+}
+async function bioUnlock(){
+  const rec=readPin();
+  if(bioBusy || !rec?.credId || $("#lock").hidden || pin.mode!=="unlock" || document.hidden) return;
+  bioBusy=true;
+  try{
+    await navigator.credentials.get({publicKey:{
+      challenge:crypto.getRandomValues(new Uint8Array(32)),
+      allowCredentials:[{type:"public-key", id:unb64u(rec.credId), transports:["internal"]}],
+      userVerification:"required", timeout:60000
+    }});
+    writeFails(0); hideLock();
+  }catch(_){ /* cancelled or failed: the PIN keypad is still there */ }
+  finally{ bioBusy=false; }
+}
+function showBioOffer(){
+  setLockText("Unlock with your fingerprint next time?");
+  $("#pinArea").hidden=true; $("#bioBtn").hidden=true; $("#lockAlt").hidden=true; $("#bioOffer").hidden=false; $("#bioErr").textContent="";
+  pin.mode="offer"; $("#lock").hidden=false;
+}
+async function refreshBioToggle(){
+  const t=$("#bioToggleBtn");
+  if(!pin.uid || !readPin() || !(await bioSupported())){ t.hidden=true; return; }
+  t.hidden=false; t.textContent = readPin()?.credId ? "Turn off fingerprint" : "Turn on fingerprint";
+}
+$("#bioBtn").onclick=bioUnlock;
+$("#bioEnableBtn").onclick=async()=>{
+  $("#bioErr").textContent="";
+  if(await enableBio()) hideLock();
+  else $("#bioErr").textContent="Fingerprint wasn’t set up. Try again, or tap Not now.";
+};
+$("#bioSkipBtn").onclick=()=>hideLock();
+$("#bioToggleBtn").onclick=async()=>{
+  const rec=readPin(); if(!rec) return;
+  if(rec.credId){ const {credId,...rest}=rec; savePin(rest); }
+  else if(!(await enableBio())) notice("Fingerprint wasn’t set up. Check a fingerprint is registered in your phone’s settings, then try again.");
+};
+
+function pressDigit(d){
+  if($("#lock").hidden) return;
+  if(d==="back"){ pin.entered=pin.entered.slice(0,-1); drawDots(); return; }
+  if(pin.entered.length>=4) return;
+  pin.entered+=d; drawDots();
+  if(pin.entered.length===4) setTimeout(pinComplete,120);
+}
+$("#pad").addEventListener("click",ev=>{ const b=ev.target.closest("button[data-d]"); if(b) pressDigit(b.dataset.d); });
+document.addEventListener("keydown",ev=>{
+  if($("#lock").hidden) return;
+  if(/^[0-9]$/.test(ev.key)) pressDigit(ev.key); else if(ev.key==="Backspace") pressDigit("back");
+});
+$("#lockAlt").onclick=()=>{ if(pin.mode==="unlock") forgetPinAndSignOut(); else hideLock(); };
+$("#changePinBtn").onclick=()=>showLock("set", true);
+// Lock whenever the app leaves the screen (another app, another tab, phone locked).
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden){ if(pin.uid && readPin()) showLock("unlock"); }
+  else setTimeout(bioUnlock,300);
+});
+window.addEventListener("pagehide",()=>{ if(pin.uid && readPin()) showLock("unlock"); });
+
 /* ---------- auth ---------- */
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: "select_account" });
@@ -474,20 +660,24 @@ function stopListening(){ state.unsub.forEach(u=>u()); state.unsub=[]; state.ent
 onAuthStateChanged(auth, user=>{
   stopListening();
   notice("");
-  if(!user){ $("#signin").hidden=false; $("#app").hidden=true; $("#addBtn").hidden=true; return; }
+  if(!user){ pin.uid=null; hideLock(); $("#foot").hidden=true; $("#signin").hidden=false; $("#app").hidden=true; $("#addBtn").hidden=true; return; }
   const email=(user.email||"").toLowerCase();
   if(!ALLOWED_EMAILS.map(e=>e.toLowerCase()).includes(email)){
     signOut(auth);
     $("#signinErr").textContent = email+" isn’t on the list for this tracker. Sign in with the account you set up.";
     return;
   }
-  $("#signin").hidden=true; $("#app").hidden=false; $("#addBtn").hidden=false;
+  pin.uid=user.uid;
+  if(readPin()){ showLock("unlock"); setTimeout(bioUnlock,300); } else showLock("set");
+  refreshBioToggle();
+  $("#signin").hidden=true; $("#app").hidden=false; $("#addBtn").hidden=false; $("#foot").hidden=false;
   render();
   state.unsub.push(onSnapshot(doc(db,"settings","names"), s=>{
     const d=s.exists() ? s.data() : null;
     state.names={A:d?.A||"",B:d?.B||""};
     render();
-    if(!d && !s.metadata.fromCache && !$("#setupDlg").open) openSetup();
+    state.namesChecked = !s.metadata.fromCache;
+    if(!d && state.namesChecked && $("#lock").hidden && !$("#setupDlg").open) openSetup();
   }, err=>notice(err?.code==="permission-denied" ? "This account can’t read the tracker. Check the email list in your Firestore rules." : "Lost connection. Your changes will sync when you’re back online.")));
   state.unsub.push(onSnapshot(collection(db,"entries"), s=>{
     state.entries=s.docs.map(d=>({id:d.id, ...d.data()})).filter(e=>SYM[e.currency] && e.amount>0);
