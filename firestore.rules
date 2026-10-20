@@ -1,0 +1,44 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Only these two Google accounts can read or write anything.
+    // Change the emails to yours (lowercase), then Publish in the Firebase console.
+    function isUs() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.lower() in ['you@gmail.com', 'wife@gmail.com'];
+    }
+
+    function validEntry(d) {
+      return d.keys().hasOnly(['from','to','kind','currency','amount','bank','date','note','createdAt'])
+        && d.keys().hasAll(['from','to','kind','currency','amount','date','createdAt'])
+        && d.from in ['A','B'] && d.to in ['A','B'] && d.from != d.to
+        && d.kind in ['loan','repay']
+        && d.currency in ['GBP','PHP']
+        && d.amount is number && d.amount > 0 && d.amount < 10000000
+        && d.date is string && d.date.size() == 10
+        && (!('bank' in d) || (d.bank is string && d.bank.size() <= 60))
+        && (!('note' in d) || (d.note is string && d.note.size() <= 200))
+        && d.createdAt is number;
+    }
+
+    match /entries/{id} {
+      allow read, delete: if isUs();
+      allow create, update: if isUs() && validEntry(request.resource.data);
+    }
+
+    match /settings/names {
+      allow read: if isUs();
+      allow write: if isUs()
+        && request.resource.data.keys().hasOnly(['A','B'])
+        && request.resource.data.A is string && request.resource.data.A.size() <= 30
+        && request.resource.data.B is string && request.resource.data.B.size() <= 30;
+    }
+
+    // Everything else is locked.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
