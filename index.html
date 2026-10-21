@@ -150,6 +150,7 @@ textarea{resize:vertical;min-height:60px}
 #bioOffer .primary{flex:none;padding:14px 24px}
 .linkbtn{background:none;border:0;color:var(--muted);text-decoration:underline;padding:10px;font-size:.92rem}
 .foot{text-align:center;margin-top:28px}
+.remind{display:block;width:100%;margin:-12px 0 22px;padding:12px 16px}
 .notice{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;color:var(--muted);font-size:.9rem;margin-bottom:16px}
 @media (prefers-reduced-motion: no-preference){
   dialog[open]{animation:up .22s ease-out}
@@ -179,6 +180,7 @@ textarea{resize:vertical;min-height:60px}
   </div>
   <div id="notice" class="notice" hidden></div>
   <section class="hero" id="hero" aria-live="polite"></section>
+  <button type="button" class="secondary remind" id="remindBtn">Send a reminder</button>
 
   <div class="tabs" role="group" aria-label="View">
     <button aria-pressed="true" data-tab="history">History</button>
@@ -186,7 +188,7 @@ textarea{resize:vertical;min-height:60px}
   </div>
   <div id="view"></div>
   </div>
-  <p class="foot" id="foot" hidden><button type="button" class="linkbtn" id="changePinBtn">Change PIN</button><button type="button" class="linkbtn" id="bioToggleBtn" hidden></button></p>
+  <p class="foot" id="foot" hidden><button type="button" class="linkbtn" id="changePinBtn">Change PIN</button><button type="button" class="linkbtn" id="bioToggleBtn" hidden></button><button type="button" class="linkbtn" id="pushBtn" hidden></button></p>
 </main>
 
 <div class="lock" id="lock" hidden role="dialog" aria-modal="true" aria-labelledby="lockTitle">
@@ -264,6 +266,20 @@ textarea{resize:vertical;min-height:60px}
   </form>
 </dialog>
 
+<dialog id="remindDlg">
+  <form class="sheet" id="remindForm" method="dialog" novalidate>
+    <h3>Send a reminder</h3>
+    <p class="hint" style="margin:0">Sends a notification to the other phone with what’s currently owed. It arrives within about 15 minutes.</p>
+    <label for="remindNote">Add a message (optional)</label>
+    <textarea id="remindNote" maxlength="200" placeholder="e.g. Can you send the rent half this week?"></textarea>
+    <div class="err" id="remindErr"></div>
+    <div class="actions">
+      <button type="button" class="secondary" id="remindCancel">Cancel</button>
+      <button type="submit" class="primary">Send reminder</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="setupDlg">
   <form class="sheet" id="setupForm" method="dialog" novalidate>
     <h3>Who’s sharing this?</h3>
@@ -297,7 +313,11 @@ import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRe
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc,
   addDoc, setDoc, updateDoc, deleteDoc, deleteField, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { firebaseConfig, ALLOWED_EMAILS } from "./config.js?v=2";
+import { getMessaging, getToken, deleteToken, onMessage, isSupported }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js";
+import * as cfg from "./config.js?v=3";
+const { firebaseConfig, ALLOWED_EMAILS } = cfg;
+const VAPID_KEY = cfg.VAPID_KEY && !cfg.VAPID_KEY.startsWith("PASTE") ? cfg.VAPID_KEY : "";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -472,7 +492,7 @@ $("#entryForm").addEventListener("submit", ev=>{
     const keep = old?.settled ? {settled:true, settledAt:old.settledAt||Date.now()} : {};
     fireAndForget(setDoc(doc(db,"entries",state.editingId), {...data, ...keep, createdAt:old?.createdAt||Date.now()}));
   } else {
-    fireAndForget(addDoc(collection(db,"entries"), {...data, createdAt:Date.now()}));
+    fireAndForget(addDoc(collection(db,"entries"), {...data, createdAt:Date.now(), by:myEmail(), notify:true}));
   }
   $("#entryDlg").close();
 });
@@ -534,7 +554,7 @@ function hideLock(){
 function wrong(msg){ pin.entered=""; drawDots(); const d=$("#dots"); d.classList.remove("shake"); void d.offsetWidth; d.classList.add("shake"); $("#lockErr").textContent=msg; }
 async function forgetPinAndSignOut(){
   try{ localStorage.removeItem(pinKey()); localStorage.removeItem(failKey()); }catch(_){}
-  hideLock(); await signOut(auth);
+  hideLock(); await leave();
 }
 async function pinComplete(){
   const entered=pin.entered;
@@ -641,6 +661,83 @@ document.addEventListener("visibilitychange",()=>{
 });
 window.addEventListener("pagehide",()=>{ if(pin.uid && readPin()) showLock("unlock"); });
 
+/* ---------- notifications ---------- */
+// Phones save a push token in Firestore; a scheduled GitHub Action reads new entries and reminders and sends the notifications.
+const myEmail = () => (auth.currentUser?.email || "").toLowerCase();
+const PUSH_FLAG = "ours-push";
+const push = { messaging:null, token:null };
+const pushReady = (async()=>{ try{ if(VAPID_KEY && await isSupported()) push.messaging=getMessaging(app); }catch(_){} })();
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
+const pushWanted = () => { try{ return localStorage.getItem(PUSH_FLAG)==="on"; }catch(_){ return false; } };
+const setPushWanted = on => { try{ on ? localStorage.setItem(PUSH_FLAG,"on") : localStorage.removeItem(PUSH_FLAG); }catch(_){} };
+const pushOn = () => !!push.messaging && window.Notification?.permission==="granted" && pushWanted();
+
+async function saveToken(){
+  const reg = await navigator.serviceWorker.ready;
+  const token = await getToken(push.messaging, { vapidKey:VAPID_KEY, serviceWorkerRegistration:reg });
+  if(!token) throw new Error("no token");
+  push.token = token;
+  fireAndForget(setDoc(doc(db,"pushTokens",token), { email:myEmail(), createdAt:Date.now() }));
+}
+async function refreshPushBtn(){
+  await pushReady;
+  const b=$("#pushBtn");
+  if(!VAPID_KEY || !pin.uid){ b.hidden=true; return; }
+  b.hidden=false;
+  if(!push.messaging) b.textContent = "Turn on notifications";
+  else b.textContent = pushOn() ? "Turn off notifications" : "Turn on notifications";
+}
+$("#pushBtn").onclick = async ()=>{
+  if(!push.messaging || !window.Notification){
+    notice(isIOS && !standalone
+      ? "On iPhone, notifications only work from the home-screen app. In Safari tap Share → Add to Home Screen, open Ours from there, then turn on notifications."
+      : "This browser can’t show notifications. Try Chrome on Android, or the home-screen app on iPhone (iOS 16.4 or later).");
+    return;
+  }
+  if(pushOn()){
+    const t=push.token;
+    setPushWanted(false); push.token=null;
+    if(t) fireAndForget(deleteDoc(doc(db,"pushTokens",t)));
+    deleteToken(push.messaging).catch(()=>{});
+    notice("Notifications are off on this phone."); refreshPushBtn(); return;
+  }
+  // Ask straight away: iPhone only shows the permission prompt in direct response to a tap.
+  const perm = await Notification.requestPermission();
+  if(perm!=="granted"){
+    notice("Notifications are blocked for Ours. Allow them in your phone’s settings for this app, then try again."); return;
+  }
+  try{ await saveToken(); setPushWanted(true); notice("Notifications are on. You’ll hear about new transactions, reminders and a weekly summary."); }
+  catch(_){ notice("Couldn’t turn on notifications. Check your connection and try again."); }
+  refreshPushBtn();
+};
+async function resumePush(){
+  await pushReady;
+  if(pushOn()) saveToken().catch(()=>{});  // tokens can change; keep Firestore's copy fresh
+  refreshPushBtn();
+}
+pushReady.then(()=>{ if(push.messaging) onMessage(push.messaging, m=>{
+  // App is open: show the message in the banner instead of a system notification.
+  const n=m.notification||{}, msg=[n.title,n.body].filter(Boolean).join(": ");
+  notice(msg); setTimeout(()=>{ if($("#notice").textContent===msg) notice(""); }, 10000);
+}); });
+// Stop notifications to this phone before signing out, so a signed-out phone stays quiet.
+async function leave(){
+  const t=push.token; push.token=null;
+  if(t) await Promise.race([deleteDoc(doc(db,"pushTokens",t)).catch(()=>{}), new Promise(r=>setTimeout(r,1500))]);
+  await signOut(auth);
+}
+
+$("#remindBtn").onclick=()=>{ $("#remindNote").value=""; $("#remindErr").textContent=""; $("#remindDlg").showModal(); };
+$("#remindCancel").onclick=()=>$("#remindDlg").close();
+$("#remindForm").addEventListener("submit", ev=>{
+  ev.preventDefault();
+  const note=$("#remindNote").value.trim().slice(0,200);
+  fireAndForget(addDoc(collection(db,"nudges"), { by:myEmail(), note, createdAt:Date.now() }));
+  $("#remindDlg").close();
+  notice("Reminder sent. It’ll arrive within about 15 minutes.");
+});
+
 /* ---------- auth ---------- */
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: "select_account" });
@@ -653,14 +750,14 @@ $("#googleBtn").onclick = async ()=>{
   }
 };
 getRedirectResult(auth).catch(()=>{});
-$("#signOutBtn").onclick=()=>signOut(auth);
+$("#signOutBtn").onclick=()=>leave();
 
 function stopListening(){ state.unsub.forEach(u=>u()); state.unsub=[]; state.entries=[]; state.names={A:"",B:""}; }
 
 onAuthStateChanged(auth, user=>{
   stopListening();
   notice("");
-  if(!user){ pin.uid=null; hideLock(); $("#foot").hidden=true; $("#signin").hidden=false; $("#app").hidden=true; $("#addBtn").hidden=true; return; }
+  if(!user){ pin.uid=null; hideLock(); $("#pushBtn").hidden=true; $("#foot").hidden=true; $("#signin").hidden=false; $("#app").hidden=true; $("#addBtn").hidden=true; return; }
   const email=(user.email||"").toLowerCase();
   if(!ALLOWED_EMAILS.map(e=>e.toLowerCase()).includes(email)){
     signOut(auth);
@@ -670,6 +767,7 @@ onAuthStateChanged(auth, user=>{
   pin.uid=user.uid;
   if(readPin()){ showLock("unlock"); setTimeout(bioUnlock,300); } else showLock("set");
   refreshBioToggle();
+  resumePush();
   $("#signin").hidden=true; $("#app").hidden=false; $("#addBtn").hidden=false; $("#foot").hidden=false;
   render();
   state.unsub.push(onSnapshot(doc(db,"settings","names"), s=>{

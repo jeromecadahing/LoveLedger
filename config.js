@@ -15,3 +15,7 @@ export const ALLOWED_EMAILS = [
   "ecadahing@gmail.com",
   "tonsdinglasan@gmail.com"
 ];
+
+// Web Push key for notifications. Firebase console → Project settings →
+// Cloud Messaging → Web Push certificates → Generate key pair, then paste the "Key pair" value here.
+export const VAPID_KEY = "BMmW-XuAJ7rGcH8ROFbQ9VsQIuP4yHYr0kTx8iwbSwpCxDWT3ostLgmG4w0LIblE7KRlS5hbiePab6sMhax1X8Y";
