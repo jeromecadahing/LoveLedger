@@ -1,0 +1,36 @@
+name: Notifications
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # check for new transactions and reminders
+    - cron: "0 18 * * 0"     # weekly summary, Sundays 18:00 UTC (7pm UK summer time, 2am Monday Manila)
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "What to send"
+        type: choice
+        options: [check, test, weekly]
+        default: test
+
+permissions:
+  contents: read
+
+concurrency:
+  group: notify
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --prefix scripts --no-audit --no-fund
+      - run: node scripts/notify.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          MODE: ${{ inputs.mode || (github.event.schedule == '0 18 * * 0' && 'weekly') || 'check' }}
+          APP_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
